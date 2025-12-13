@@ -8,7 +8,7 @@ import asyncio
 # CONFIG
 # ------------------------
 
-BOT_OWNER_ID = YOUR_DISCORD_ID_HERE  # <-- PUT YOUR DISCORD ID HERE
+BOT_OWNER_ID = 1205887699609853972  # <-- PUT YOUR DISCORD ID HERE
 
 # ------------------------
 # Bot Setup
