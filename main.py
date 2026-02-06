@@ -8,10 +8,13 @@ import asyncio
 # CONFIG
 # ------------------------
 
-BOT_OWNER_ID = 1205887699609853972  # <-- PUT YOUR DISCORD ID HERE
+BOT_OWNER_ID = 1205887699609853972
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
+
+TOKEN = os.getenv("DISCORD_TOKEN")
 
 # ------------------------
-# Bot Setup
+# BOT SETUP
 # ------------------------
 
 intents = discord.Intents.default()
@@ -19,12 +22,12 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-TOKEN = os.getenv("TOKEN")
 
 server_ticket_categories = {}
+warnings = {}
 
 # ------------------------
-# Ticket Views
+# TICKET VIEWS
 # ------------------------
 
 class TicketView(discord.ui.View):
@@ -74,20 +77,19 @@ class CloseTicketView(discord.ui.View):
         await interaction.channel.delete()
 
 # ------------------------
-# Slash Commands
+# SLASH COMMANDS
 # ------------------------
 
 @bot.tree.command(description="Send the ticket panel")
 async def ticketpanel(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🎫 Support Tickets",
-        description="Click below to create a ticket.",
+        description="Click the button below to create a ticket.",
         color=discord.Color.green()
     )
     await interaction.response.send_message(embed=embed, view=TicketView())
 
-@bot.tree.command(description="Set the ticket category")
-@app_commands.describe(category="Ticket category")
+@bot.tree.command(description="Set ticket category")
 async def setcategory(interaction: discord.Interaction, category: discord.CategoryChannel):
     server_ticket_categories[interaction.guild.id] = category.id
     await interaction.response.send_message(
@@ -96,68 +98,121 @@ async def setcategory(interaction: discord.Interaction, category: discord.Catego
     )
 
 # ------------------------
-# ANNOUNCEMENT COMMAND (OWNER ONLY)
+# MODERATION COMMANDS
 # ------------------------
 
-@bot.tree.command(description="Send a DM announcement to all users (owner only)")
-@app_commands.describe(message="Announcement message")
-async def announceall(interaction: discord.Interaction, message: str):
-    if interaction.user.id != BOT_OWNER_ID:
-        await interaction.response.send_message(
-            "❌ You are not allowed to use this command.",
-            ephemeral=True
-        )
-        return
+@bot.tree.command(description="Warn a user")
+async def warn(interaction: discord.Interaction, member: discord.Member, reason: str):
+    warnings.setdefault(member.id, []).append(reason)
 
-    await interaction.response.send_message("📤 Sending announcement...", ephemeral=True)
+    try:
+        await member.send(f"⚠️ You were warned: {reason}")
+    except:
+        pass
 
-    sent = 0
-    failed = 0
-
-    for guild in bot.guilds:
-        for member in guild.members:
-            if member.bot:
-                continue
-            try:
-                await member.send(
-                    embed=discord.Embed(
-                        title="📢 Announcement",
-                        description=message,
-                        color=discord.Color.blue()
-                    )
-                )
-                sent += 1
-            except:
-                failed += 1
-
-    await interaction.followup.send(
-        f"✅ Sent to {sent} users\n❌ Failed: {failed}",
+    await interaction.response.send_message(
+        f"⚠️ {member.mention} warned.",
         ephemeral=True
     )
 
+@bot.tree.command(description="Remove a warning")
+async def unwarn(interaction: discord.Interaction, member: discord.Member):
+    warnings.pop(member.id, None)
+    await interaction.response.send_message(
+        f"✅ Warnings cleared for {member.mention}",
+        ephemeral=True
+    )
+
+@bot.tree.command(description="Mute a user")
+async def mute(interaction: discord.Interaction, member: discord.Member, minutes: int, reason: str):
+    duration = minutes * 60
+    await member.timeout(discord.utils.utcnow() + discord.timedelta(seconds=duration))
+
+    try:
+        await member.send(f"🔇 You were muted for {minutes} minutes.\nReason: {reason}")
+    except:
+        pass
+
+    await interaction.response.send_message(
+        f"🔇 {member.mention} muted for {minutes} minutes.",
+        ephemeral=True
+    )
+
+@bot.tree.command(description="Kick a user")
+async def kick(interaction: discord.Interaction, member: discord.Member, reason: str):
+    await member.kick(reason=reason)
+    await interaction.response.send_message(
+        f"👢 {member} kicked.",
+        ephemeral=True
+    )
+
+@bot.tree.command(description="Ban a user")
+async def ban(interaction: discord.Interaction, member: discord.Member, reason: str):
+    await member.ban(reason=reason)
+    await interaction.response.send_message(
+        f"🔨 {member} banned.",
+        ephemeral=True
+    )
+
+@bot.tree.command(description="Lock a channel")
+async def lock(interaction: discord.Interaction):
+    await interaction.channel.set_permissions(
+        interaction.guild.default_role,
+        send_messages=False
+    )
+    await interaction.response.send_message("🔒 Channel locked.", ephemeral=True)
+
+@bot.tree.command(description="Unlock a channel")
+async def unlock(interaction: discord.Interaction):
+    await interaction.channel.set_permissions(
+        interaction.guild.default_role,
+        send_messages=True
+    )
+    await interaction.response.send_message("🔓 Channel unlocked.", ephemeral=True)
+
 # ------------------------
-# Bot Ready
+# OWNER ANNOUNCEMENT
+# ------------------------
+
+@bot.tree.command(description="Send announcement DM (Owner only)")
+async def broadcast(interaction: discord.Interaction, message: str):
+    if interaction.user.id != BOT_OWNER_ID:
+        await interaction.response.send_message("❌ Owner only.", ephemeral=True)
+        return
+
+    await interaction.response.send_message("📢 Sending announcement...", ephemeral=True)
+
+    sent = 0
+    for guild in bot.guilds:
+        for member in guild.members:
+            if not member.bot:
+                try:
+                    await member.send(message)
+                    sent += 1
+                except:
+                    pass
+
+    await interaction.followup.send(f"✅ Sent to {sent} users.", ephemeral=True)
+
+# ------------------------
+# READY EVENT
 # ------------------------
 
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
 
-    activity = discord.Activity(
-        type=discord.ActivityType.listening,
-        name="APT"
-    )
-
-    await bot.change_presence(status=discord.Status.online, activity=activity)
+    bot.add_view(TicketView())
+    bot.add_view(CloseTicketView())
 
     try:
         synced = await bot.tree.sync()
         print(f"🔄 Synced {len(synced)} commands")
     except Exception as e:
-        print("❌ Sync failed:", e)
+        print("❌ Sync error:", e)
 
 # ------------------------
-# Start Bot
+# START BOT
 # ------------------------
 
 bot.run(TOKEN)
